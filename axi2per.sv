@@ -10,7 +10,7 @@
 
 // Davide Rossi <davide.rossi@unibo.it>
 
-module axi2per
+module axi2per_cluster
 #(
    parameter PER_ADDR_WIDTH = 32,
    parameter PER_ID_WIDTH   = 5,
@@ -26,6 +26,8 @@ module axi2per
    input  logic                      rst_ni,
    input  logic                      test_en_i,
 
+   input  logic [5:0]                cluster_id_i,
+
    // AXI4 SLAVE
    //***************************************
    // WRITE ADDRESS CHANNEL
@@ -37,6 +39,7 @@ module axi2per
    input  logic [2:0]                axi_slave_aw_size_i,
    input  logic [1:0]                axi_slave_aw_burst_i,
    input  logic                      axi_slave_aw_lock_i,
+   input  logic [5:0]                axi_slave_aw_atop_i,
    input  logic [3:0]                axi_slave_aw_cache_i,
    input  logic [3:0]                axi_slave_aw_qos_i,
    input  logic [AXI_ID_WIDTH-1:0]   axi_slave_aw_id_i,
@@ -88,6 +91,7 @@ module axi2per
    output logic                      per_master_req_o,
    output logic [PER_ADDR_WIDTH-1:0] per_master_add_o,
    output logic                      per_master_we_no,
+   output logic [5:0]                per_master_atop_o,
    output logic [31:0]               per_master_wdata_o,
    output logic [3:0]                per_master_be_o,
    input  logic                      per_master_gnt_i,
@@ -100,7 +104,7 @@ module axi2per
    // BUSY SIGNAL
    output logic                      busy_o
 );
-   
+
    // SIGNAL DECLARATION
    logic                              s_aw_valid;
    logic [AXI_ADDR_WIDTH-1:0]         s_aw_addr;
@@ -110,12 +114,13 @@ module axi2per
    logic [2:0]                        s_aw_size;
    logic [1:0]                        s_aw_burst;
    logic                              s_aw_lock;
+   logic [5:0]                        s_aw_atop;
    logic [3:0]                        s_aw_cache;
    logic [3:0]                        s_aw_qos;
    logic [AXI_ID_WIDTH-1:0]           s_aw_id;
    logic [AXI_USER_WIDTH-1:0]         s_aw_user;
    logic                              s_aw_ready;
-   
+
    logic                              s_ar_valid;
    logic [AXI_ADDR_WIDTH-1:0]         s_ar_addr;
    logic [2:0]                        s_ar_prot;
@@ -129,14 +134,14 @@ module axi2per
    logic [AXI_ID_WIDTH-1:0]           s_ar_id;
    logic [AXI_USER_WIDTH-1:0]         s_ar_user;
    logic                              s_ar_ready;
-   
+
    logic                              s_w_valid;
    logic [AXI_DATA_WIDTH-1:0]         s_w_data;
    logic [AXI_STRB_WIDTH-1:0]         s_w_strb;
    logic [AXI_USER_WIDTH-1:0]         s_w_user;
    logic                              s_w_last;
    logic                              s_w_ready;
-   
+
    logic                              s_r_valid;
    logic [AXI_DATA_WIDTH-1:0]         s_r_data;
    logic [1:0]                        s_r_resp;
@@ -144,19 +149,24 @@ module axi2per
    logic [AXI_ID_WIDTH-1:0]           s_r_id;
    logic [AXI_USER_WIDTH-1:0]         s_r_user;
    logic                              s_r_ready;
-   
+
    logic                              s_b_valid;
    logic [1:0]                        s_b_resp;
    logic [AXI_ID_WIDTH-1:0]           s_b_id;
    logic [AXI_USER_WIDTH-1:0]         s_b_user;
    logic                              s_b_ready;
-   
+
    logic                              s_trans_req;
-   logic                              s_trans_we;
+   logic                              s_trans_we,
+                                      s_trans_atop_r;
    logic [AXI_ID_WIDTH-1:0]           s_trans_id;
    logic [AXI_ADDR_WIDTH-1:0]         s_trans_add;
    logic                              s_trans_r_valid;
-     
+
+   assign per_master_atop_o = '0;
+   assign s_aw_atop         = '0;
+   assign s_trans_atop_r    = '0;
+
    // AXI2PER REQUEST CHANNEL
    axi2per_req_channel
    #(
@@ -171,6 +181,8 @@ module axi2per
       .clk_i                 ( clk_i               ),
       .rst_ni                ( rst_ni              ),
 
+      .cluster_id_i          ( cluster_id_i        ),
+
       .axi_slave_aw_valid_i  ( s_aw_valid          ),
       .axi_slave_aw_addr_i   ( s_aw_addr           ),
       .axi_slave_aw_prot_i   ( s_aw_prot           ),
@@ -179,6 +191,8 @@ module axi2per
       .axi_slave_aw_size_i   ( s_aw_size           ),
       .axi_slave_aw_burst_i  ( s_aw_burst          ),
       .axi_slave_aw_lock_i   ( s_aw_lock           ),
+      // .axi_slave_aw_atop_i   ( s_aw_atop           ),
+      .axi_slave_aw_atop_i   ( '0                  ),
       .axi_slave_aw_cache_i  ( s_aw_cache          ),
       .axi_slave_aw_qos_i    ( s_aw_qos            ),
       .axi_slave_aw_id_i     ( s_aw_id             ),
@@ -209,12 +223,16 @@ module axi2per
       .per_master_req_o      ( per_master_req_o    ),
       .per_master_add_o      ( per_master_add_o    ),
       .per_master_we_o       ( per_master_we_no    ),
+      // .per_master_atop_o     ( per_master_atop_o   ),
+      .per_master_atop_o     (    /* unused */     ),
       .per_master_wdata_o    ( per_master_wdata_o  ),
       .per_master_be_o       ( per_master_be_o     ),
       .per_master_gnt_i      ( per_master_gnt_i    ),
 
       .trans_req_o           ( s_trans_req         ),
       .trans_we_o            ( s_trans_we          ),
+      // .trans_atop_r_o        ( s_trans_atop_r      ),
+      .trans_atop_r_o        (  /* unused */       ),
       .trans_id_o            ( s_trans_id          ),
       .trans_add_o           ( s_trans_add         ),
       .trans_r_valid_i       ( s_trans_r_valid     ),
@@ -256,11 +274,13 @@ module axi2per
 
       .trans_req_i          ( s_trans_req          ),
       .trans_we_i           ( s_trans_we           ),
+      // .trans_atop_r_i       ( s_trans_atop_r       ),
+      .trans_atop_r_i       (          '0          ),
       .trans_id_i           ( s_trans_id           ),
       .trans_add_i          ( s_trans_add          ),
       .trans_r_valid_o      ( s_trans_r_valid      )
    );
-   
+
 
 
 
@@ -286,6 +306,7 @@ module axi2per
       .slave_size_i    ( axi_slave_aw_size_i    ),
       .slave_burst_i   ( axi_slave_aw_burst_i   ),
       .slave_lock_i    ( axi_slave_aw_lock_i    ),
+      // .slave_atop_i    ( axi_slave_aw_atop_i    ),
       .slave_cache_i   ( axi_slave_aw_cache_i   ),
       .slave_qos_i     ( axi_slave_aw_qos_i     ),
       .slave_id_i      ( axi_slave_aw_id_i      ),
@@ -300,13 +321,14 @@ module axi2per
       .master_size_o   ( s_aw_size              ),
       .master_burst_o  ( s_aw_burst             ),
       .master_lock_o   ( s_aw_lock              ),
+      // .master_atop_o   ( s_aw_atop              ),
       .master_cache_o  ( s_aw_cache             ),
       .master_qos_o    ( s_aw_qos               ),
       .master_id_o     ( s_aw_id                ),
       .master_user_o   ( s_aw_user              ),
       .master_ready_i  ( s_aw_ready             )
    );
-   
+
    // AXI READ ADDRESS CHANNEL BUFFER
    axi_ar_buffer
    #(
@@ -349,7 +371,7 @@ module axi2per
       .master_user_o    ( s_ar_user               ),
       .master_ready_i   ( s_ar_ready              )
    );
-   
+
    // WRITE DATA CHANNEL BUFFER
    axi_w_buffer
    #(
@@ -408,7 +430,7 @@ module axi2per
       .master_last_o   ( axi_slave_r_last_o   ),
       .master_ready_i  ( axi_slave_r_ready_i  )
    );
-   
+
    // WRITE RESPONSE CHANNEL BUFFER
    axi_b_buffer
    #(
@@ -434,5 +456,20 @@ module axi2per
       .master_user_o   ( axi_slave_b_user_o   ),
       .master_ready_i  ( axi_slave_b_ready_i  )
    );
-   
+
+   `ifndef TARGET_SYNTHESIS
+      assert property (@(posedge clk_i) disable iff (!rst_ni)
+            axi_slave_aw_valid_i |-> axi_slave_aw_len_i == '0)
+         else $error("This module does not support bursts!");
+      assert property (@(posedge clk_i) disable iff (!rst_ni)
+            axi_slave_ar_valid_i |-> axi_slave_ar_len_i == '0)
+         else $error("This module does not support bursts!");
+      assert property (@(posedge clk_i) disable iff (!rst_ni)
+            axi_slave_aw_valid_i |-> axi_slave_aw_size_i <= 3'd2)
+         else $error("This module does not support beats wider than 32 bit!");
+      assert property (@(posedge clk_i) disable iff (!rst_ni)
+            axi_slave_ar_valid_i |-> axi_slave_ar_size_i <= 3'd2)
+         else $error("This module does not support beats wider than 32 bit!");
+   `endif
+
 endmodule
