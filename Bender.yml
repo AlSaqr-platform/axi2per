@@ -2,7 +2,8 @@ package:
   name: axi2per
 
 dependencies:
- axi: { git: "https://github.com/pulp-platform/axi.git", version: 0.29.1 }
+ axi:        { git: "https://github.com/pulp-platform/axi.git", version: 0.29.1 }
+ axi_to_mem: { git: "https://github.com/AlSaqr-platform/axi2mem.git", rev: alsaqr_cluster }
 
 sources:
   # Level 0
